@@ -1,0 +1,1298 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wizard Infection</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Press Start 2P', cursive; }
+        canvas { display: block; }
+        #mainMenu, #ui, #upgradeMenu, #gameOver, #waveInfo, #leaderboard, #achievementPopup {
+            position: absolute;
+            color: #fff;
+            text-align: center;
+            border-radius: 15px;
+            transition: all 0.3s ease;
+        }
+        #mainMenu {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(145deg, #222, #444);
+            padding: 60px;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.9), inset 0 0 20px rgba(255, 0, 0, 0.5);
+            width: 600px;
+            border: 5px solid #ff5555;
+            z-index: 20;
+        }
+        #mainMenu.hidden { opacity: 0; pointer-events: none; }
+        #mainMenu h1 {
+            font-size: 72px;
+            margin-bottom: 30px;
+            text-shadow: 5px 5px #000, 0 0 30px #ff3333;
+            background: linear-gradient(90deg, #ff3333, #ff9999);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: glow 2s ease-in-out infinite;
+        }
+        @keyframes glow {
+            0% { text-shadow: 5px 5px #000, 0 0 30px #ff3333; }
+            50% { text-shadow: 5px 5px #000, 0 0 50px #ff6666; }
+            100% { text-shadow: 5px 5px #000, 0 0 30px #ff3333; }
+        }
+        #mainMenu input, #mainMenu select {
+            padding: 12px;
+            margin: 15px;
+            width: 250px;
+            border-radius: 8px;
+            border: 2px solid #ff7777;
+            background: #333;
+            color: #fff;
+            font-size: 18px;
+            font-family: 'Press Start 2P', cursive;
+        }
+        #mainMenu button {
+            padding: 18px 50px;
+            margin: 20px;
+            background: linear-gradient(90deg, #ff3333, #ff6666);
+            color: #fff;
+            border: 3px solid #ff9999;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 22px;
+            font-family: 'Press Start 2P', cursive;
+            transition: transform 0.3s, box-shadow 0.3s;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        #mainMenu button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.9);
+        }
+        #mainMenu button:active {
+            background: linear-gradient(90deg, #ff6666, #ff9999);
+        }
+        #ui {
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.7);
+            display: none;
+            border: 2px solid #ff5555;
+        }
+        #ui div { margin: 15px 0; font-size: 18px; text-shadow: 2px 2px #000; }
+        #ui .bar {
+            background: #333;
+            height: 16px;
+            width: 350px;
+            border-radius: 8px;
+            border: 2px solid #666;
+            overflow: hidden;
+            transition: width 0.5s ease;
+        }
+        #ui .hp-fill { background: linear-gradient(90deg, #ff3333, #ff6666); height: 100%; border-radius: 6px; }
+        #ui .xp-fill { background: linear-gradient(90deg, #3333ff, #6666ff); height: 100%; border-radius: 6px; }
+        #waveInfo {
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.7);
+            font-size: 20px;
+            text-shadow: 2px 2px #000;
+            display: none;
+            border: 2px solid #ff5555;
+        }
+        #waveInfo.show {
+            animation: wavePop 1s ease-out;
+        }
+        @keyframes wavePop {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        #upgradeMenu {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(145deg, #222, #444);
+            padding: 60px;
+            border-radius: 15px;
+            box-shadow: 0 0 40px rgba(255, 0, 0, 0.9);
+            display: none;
+            border: 5px solid #ff5555;
+            width: 700px;
+            z-index: 20;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #upgradeMenu h2 {
+            font-size: 40px;
+            margin-bottom: 40px;
+            text-shadow: 4px 4px #000;
+            color: #ff3333;
+        }
+        #upgradeMenu button {
+            padding: 15px 35px;
+            margin: 10px;
+            background: linear-gradient(90deg, #ff3333, #ff6666);
+            color: #fff;
+            border: 2px solid #ff9999;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-family: 'Press Start 2P', cursive;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        #upgradeMenu button.common { background: linear-gradient(90deg, #cccccc, #ffffff); border-color: #aaaaaa; }
+        #upgradeMenu button.rare { background: linear-gradient(90deg, #33cc33, #66ff66); border-color: #00cc00; }
+        #upgradeMenu button.epic { background: linear-gradient(90deg, #cc33cc, #ff66ff); border-color: #990099; }
+        #upgradeMenu button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.9);
+        }
+        #upgradeMenu button.reroll {
+            background: linear-gradient(90deg, #33ccff, #66ffff);
+            border-color: #00ccff;
+        }
+        #gameOver {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(145deg, #222, #444);
+            padding: 70px;
+            border-radius: 20px;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.9);
+            display: none;
+            width: 600px;
+            border: 5px solid #ff5555;
+            z-index: 20;
+        }
+        #gameOver h1 {
+            font-size: 72px;
+            margin-bottom: 40px;
+            text-shadow: 5px 5px #000;
+            color: #ff3333;
+        }
+        #gameOver p {
+            font-size: 24px;
+            margin: 20px 0;
+            text-shadow: 2px 2px #000;
+        }
+        #gameOver button {
+            padding: 20px 60px;
+            background: linear-gradient(90deg, #ff3333, #ff6666);
+            color: #fff;
+            border: 3px solid #ff9999;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 24px;
+            font-family: 'Press Start 2P', cursive;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        #gameOver button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.9);
+        }
+        #leaderboard {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(145deg, #222, #444);
+            padding: 50px;
+            border-radius: 15px;
+            box-shadow: 0 0 40px rgba(0, 255, 255, 0.9);
+            display: none;
+            width: 600px;
+            border: 5px solid #00ffff;
+            z-index: 20;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #leaderboard h2 {
+            font-size: 40px;
+            margin-bottom: 30px;
+            text-shadow: 4px 4px #000;
+            color: #00ffff;
+        }
+        #leaderboard p {
+            font-size: 18px;
+            margin: 10px 0;
+            text-shadow: 2px 2px #000;
+        }
+        #leaderboard button {
+            padding: 15px 50px;
+            background: linear-gradient(90deg, #00ffff, #66ffff);
+            color: #fff;
+            border: 2px solid #99ffff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            font-family: 'Press Start 2P', cursive;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        #leaderboard button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.9);
+        }
+        #achievementPopup {
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 0 25px rgba(255, 255, 0, 0.7);
+            font-size: 18px;
+            text-shadow: 2px 2px #000;
+            display: none;
+            border: 2px solid #ffcc33;
+            animation: achievementFade 3s ease-out forwards;
+        }
+        @keyframes achievementFade {
+            0% { transform: translateY(-20px); opacity: 0; }
+            20% { transform: translateY(0); opacity: 1; }
+            80% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-20px); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="mainMenu">
+        <h1>Wizard Infection</h1>
+        <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="15">
+        <select id="difficulty">
+            <option value="easy">Easy</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+        </select>
+        <button id="startButton">Start Game</button>
+        <button id="instructionsButton">Instructions</button>
+        <button id="achievementsButton">Achievements</button>
+        <button id="leaderboardButton">Leaderboard</button>
+    </div>
+    <div id="ui">
+        <div>Player: <span id="playerNameDisplay">Wizard</span></div>
+        <div>HP: <span id="hp">100</span>/<span id="maxHp">100</span></div>
+        <div class="bar"><div class="hp-fill" id="hpBar" style="width: 100%"></div></div>
+        <div>Level: <span id="level">1</span></div>
+        <div>XP: <span id="xp">0</span>/<span id="xpToNext">100</span></div>
+        <div class="bar"><div class="xp-fill" id="xpBar" style="width: 0%"></div></div>
+        <div>Enemies: <span id="enemies">0</span></div>
+        <div>Time: <span id="time">0:00</span></div>
+    </div>
+    <div id="waveInfo">
+        Wave: <span id="wave">1</span>
+    </div>
+    <div id="upgradeMenu">
+        <h2>Level Up! Choose a Power</h2>
+        <div id="upgradeOptions"></div>
+        <button id="rerollButton" class="reroll" onclick="rerollUpgrades()">Reroll (1 use)</button>
+    </div>
+    <div id="gameOver">
+        <h1>Game Over</h1>
+        <p>Player: <span id="playerNameFinal">Wizard</span></p>
+        <p>Time Survived: <span id="finalTime">0:00</span></p>
+        <p>Enemies Defeated: <span id="enemiesDefeated">0</span></p>
+        <p>Level Reached: <span id="finalLevel">1</span></p>
+        <p>Highest Wave: <span id="finalWave">1</span></p>
+        <p>Score: <span id="finalScore">0</span></p>
+        <button onclick="restartGame()">Restart</button>
+        <button onclick="returnToMenu()">Main Menu</button>
+        <button onclick="showLeaderboard()">Leaderboard</button>
+    </div>
+    <div id="leaderboard">
+        <h2>Leaderboard</h2>
+        <div id="leaderboardList"></div>
+        <button onclick="closeLeaderboard()">Close</button>
+    </div>
+    <div id="achievementPopup"></div>
+    <audio id="gameMusic" loop>
+        <source src="https://cdn.pixabay.com/audio/2022/05/27/audio_4b47a6b7b3.mp3" type="audio/mp3">
+    </audio>
+    <script>
+        // Declare all variables at the top to avoid TDZ
+        let player = null;
+        let enemies = [];
+        let bullets = [];
+        let particles = [];
+        let xp = 0;
+        let level = 1;
+        let xpToNext = 100;
+        let fireRate = 500;
+        let lastShot = 0;
+        let gameTime = 0;
+        let gameOver = false;
+        let gameStarted = false;
+        let damageMultiplier = 1;
+        let speedMultiplier = 1;
+        let bulletSpeed = 10;
+        let regenRate = 0;
+        let bulletSize = 10;
+        let pierceCount = 0;
+        let multiShot = 1;
+        let enemiesDefeated = 0;
+        let wave = 1;
+        let waveTimer = 0;
+        let waveInterval = 15000;
+        let enemiesToSpawn = 5;
+        let bossActive = false;
+        let boss = null;
+        let difficulty = 'normal';
+        let playerImg, weaponImg, enemyImg, bossImg;
+        let cameraOffset = null;
+        let hitFlash = 0;
+        let playerName = "Wizard";
+        let fireDamage = 0, iceSlow = 0, lightningChain = 0, arcaneBlast = 0, manaRegen = 0;
+        let spellRange = 1, homing = 0, poisonDot = 0, darkPulse = 0, lightHeal = 0;
+        let damageResist = 0, healOnKill = 0, shieldDuration = 0, hpLeech = 0, regenSpeed = 1;
+        let maxShield = 0, reflectDamage = 0, thorns = 0, hpBoost = 1, healPulse = 0;
+        let knockback = 0, critChance = 0, critDamage = 1, meleeDamage = 0, stamina = 1;
+        let chargeSpeed = 1, dashDistance = 1, armorPen = 0, strengthBoost = 1;
+        let explosiveShot = 0, rapidDash = 0, powerStrike = 1, stunChance = 0;
+        let multiHit = 0, vitality = 1, rageMode = 0, swiftStrike = 1, endurance = 1;
+        let cameraZoom = 1;
+        let targetZoom = 1;
+        let leaderboard = JSON.parse(localStorage.getItem('leaderboard')) || [];
+        let canReroll = true;
+        let currentUpgrades = [];
+        let achievements = [
+            { id: 'firstKill', name: 'First Kill', desc: 'Defeat your first enemy', condition: () => enemiesDefeated >= 1, unlocked: false },
+            { id: 'wave10', name: 'Wave 10', desc: 'Survive until wave 10', condition: () => wave >= 10, unlocked: false },
+            { id: 'level5', name: 'Level 5', desc: 'Reach level 5', condition: () => level >= 5, unlocked: false },
+            { id: 'bossKiller', name: 'Boss Killer', desc: 'Defeat a boss', condition: () => enemiesDefeated >= 10 && !bossActive && wave % 30 === 0, unlocked: false },
+            { id: 'survivor', name: 'Survivor', desc: 'Survive for 5 minutes', condition: () => gameTime >= 300, unlocked: false },
+            { id: 'slaughter', name: 'Slaughter', desc: 'Defeat 100 enemies', condition: () => enemiesDefeated >= 100, unlocked: false },
+            { id: 'upgradeMaster', name: 'Upgrade Master', desc: 'Unlock 10 upgrades', condition: () => level >= 11, unlocked: false },
+            { id: 'wave30', name: 'Wave 30', desc: 'Survive until wave 30', condition: () => wave >= 30, unlocked: false },
+            { id: 'level10', name: 'Level 10', desc: 'Reach level 10', condition: () => level >= 10, unlocked: false }
+        ];
+        const upgradePool = [
+            { type: 'damage', desc: 'Damage +20% (More powerful shots)', common: () => damageMultiplier *= 1.2, rare: () => damageMultiplier *= 1.4, epic: () => damageMultiplier *= 1.6 },
+            { type: 'fireRate', desc: 'Fire Rate +20% (Shoot faster)', common: () => fireRate *= 0.8, rare: () => fireRate *= 0.7, epic: () => fireRate *= 0.6 },
+            { type: 'bulletSpeed', desc: 'Bullet Speed +20% (Faster projectiles)', common: () => bulletSpeed *= 1.2, rare: () => bulletSpeed *= 1.4, epic: () => bulletSpeed *= 1.6 },
+            { type: 'area', desc: 'Bullet Area +20% (Larger projectiles)', common: () => bulletSize *= 1.2, rare: () => bulletSize *= 1.4, epic: () => bulletSize *= 1.6 },
+            { type: 'pierce', desc: 'Pierce +1 (Hit more enemies)', common: () => pierceCount += 1, rare: () => pierceCount += 2, epic: () => pierceCount += 3 },
+            { type: 'multiShot', desc: 'Multi-Shot +1 (More projectiles)', common: () => multiShot += 1, rare: () => multiShot += 2, epic: () => multiShot += 3 },
+            { type: 'fireDamage', desc: 'Fire Damage +15 (Burn enemies)', common: () => fireDamage += 15, rare: () => fireDamage += 25, epic: () => fireDamage += 40 },
+            { type: 'iceSlow', desc: 'Ice Slow +7% (Slow enemies)', common: () => iceSlow += 0.07, rare: () => iceSlow += 0.1, epic: () => iceSlow += 0.15 },
+            { type: 'lightningChain', desc: 'Lightning Chain +1 (Chain hits)', common: () => lightningChain += 1, rare: () => lightningChain += 2, epic: () => lightningChain += 3 },
+            { type: 'arcaneBlast', desc: 'Arcane Blast +15% (Area explosion)', common: () => arcaneBlast += 0.15, rare: () => arcaneBlast += 0.25, epic: () => arcaneBlast += 0.4 },
+            { type: 'manaRegen', desc: 'Mana Regen +3/s (Faster spell recovery)', common: () => manaRegen += 3, rare: () => manaRegen += 5, epic: () => manaRegen += 8 },
+            { type: 'spellRange', desc: 'Spell Range +15% (Longer reach)', common: () => spellRange *= 1.15, rare: () => spellRange *= 1.25, epic: () => spellRange *= 1.4 },
+            { type: 'homing', desc: 'Homing Shots +7% (Track enemies)', common: () => homing += 0.07, rare: () => homing += 0.1, epic: () => homing += 0.15 },
+            { type: 'poisonDot', desc: 'Poison DoT +7 (Damage over time)', common: () => poisonDot += 7, rare: () => poisonDot += 12, epic: () => poisonDot += 20 },
+            { type: 'darkPulse', desc: 'Dark Pulse +15% (Repel enemies)', common: () => darkPulse += 15, rare: () => darkPulse += 25, epic: () => darkPulse += 40 },
+            { type: 'lightHeal', desc: 'Light Heal +7 HP (Heal on hit)', common: () => lightHeal += 7, rare: () => lightHeal += 12, epic: () => lightHeal += 20 },
+            { type: 'maxHp', desc: 'Max HP +40 (Tougher wizard)', common: () => { player.maxHp = floor(player.maxHp + 40 * hpBoost * vitality); player.hp += 40 * hpBoost * vitality; }, rare: () => { player.maxHp = floor(player.maxHp + 60 * hpBoost * vitality); player.hp += 60 * hpBoost * vitality; }, epic: () => { player.maxHp = floor(player.maxHp + 100 * hpBoost * vitality); player.hp += 100 * hpBoost * vitality; } },
+            { type: 'regen', desc: 'Regen +3 HP/s (Heal over time)', common: () => regenRate += 3, rare: () => regenRate += 5, epic: () => regenRate += 8 },
+            { type: 'damageResist', desc: 'Damage Resist +7% (Less damage taken)', common: () => damageResist = min(damageResist + 0.07, 0.5), rare: () => damageResist = min(damageResist + 0.1, 0.5), epic: () => damageResist = min(damageResist + 0.15, 0.5) },
+            { type: 'healOnKill', desc: 'Heal on Kill +7 HP (Heal per enemy killed)', common: () => healOnKill += 7, rare: () => healOnKill += 12, epic: () => healOnKill += 20 },
+            { type: 'shieldDuration', desc: 'Shield Duration +1.5s (Temporary invulnerability)', common: () => shieldDuration += 1.5, rare: () => shieldDuration += 2.5, epic: () => shieldDuration += 4 },
+            { type: 'hpLeech', desc: 'HP Leech +7% (Steal health on hit)', common: () => hpLeech += 0.07, rare: () => hpLeech += 0.1, epic: () => hpLeech += 0.15 },
+            { type: 'regenSpeed', desc: 'Regen Speed +15% (Faster healing)', common: () => regenSpeed *= 1.15, rare: () => regenSpeed *= 1.25, epic: () => regenSpeed *= 1.4 },
+            { type: 'maxShield', desc: 'Max Shield +30 (Extra shield layer)', common: () => { maxShield += 30; player.shield = min(player.shield + 30, maxShield); }, rare: () => { maxShield += 50; player.shield = min(player.shield + 50, maxShield); }, epic: () => { maxShield += 80; player.shield = min(player.shield + 80, maxShield); } },
+            { type: 'reflectDamage', desc: 'Reflect Damage +7% (Return damage)', common: () => reflectDamage += 0.07, rare: () => reflectDamage += 0.1, epic: () => reflectDamage += 0.15 },
+            { type: 'thorns', desc: 'Thorns +7 (Damage enemies on contact)', common: () => thorns += 7, rare: () => thorns += 12, epic: () => thorns += 20 },
+            { type: 'hpBoost', desc: 'HP Boost +15% (Increase max HP)', common: () => hpBoost *= 1.15, rare: () => hpBoost *= 1.25, epic: () => hpBoost *= 1.4 },
+            { type: 'healPulse', desc: 'Heal Pulse +7 HP (Periodic heal)', common: () => healPulse += 7, rare: () => healPulse += 12, epic: () => healPulse += 20 },
+            { type: 'speed', desc: 'Speed +20% (Move faster)', common: () => speedMultiplier *= 1.2, rare: () => speedMultiplier *= 1.4, epic: () => speedMultiplier *= 1.6 },
+            { type: 'knockback', desc: 'Knockback +15% (Push enemies back)', common: () => knockback += 15, rare: () => knockback += 25, epic: () => knockback += 40 },
+            { type: 'critChance', desc: 'Crit Chance +7% (Higher critical hits)', common: () => critChance += 0.07, rare: () => critChance += 0.1, epic: () => critChance += 0.15 },
+            { type: 'critDamage', desc: 'Crit Damage +15% (Stronger criticals)', common: () => critDamage *= 1.15, rare: () => critDamage *= 1.25, epic: () => critDamage *= 1.4 },
+            { type: 'meleeDamage', desc: 'Melee Damage +15 (Stronger close-range attacks)', common: () => meleeDamage += 15, rare: () => meleeDamage += 25, epic: () => meleeDamage += 40 },
+            { type: 'stamina', desc: 'Stamina +15% (Faster movement recovery)', common: () => stamina *= 1.15, rare: () => stamina *= 1.25, epic: () => stamina *= 1.4 },
+            { type: 'chargeSpeed', desc: 'Charge Speed +15% (Faster charge attacks)', common: () => chargeSpeed *= 1.15, rare: () => chargeSpeed *= 1.25, epic: () => chargeSpeed *= 1.4 },
+            { type: 'dashDistance', desc: 'Dash Distance +15% (Longer dashes)', common: () => dashDistance *= 1.15, rare: () => dashDistance *= 1.25, epic: () => dashDistance *= 1.4 },
+            { type: 'armorPen', desc: 'Armor Penetration +7% (Ignore enemy armor)', common: () => armorPen += 0.07, rare: () => armorPen += 0.1, epic: () => armorPen += 0.15 },
+            { type: 'strengthBoost', desc: 'Strength Boost +15% (Overall power increase)', common: () => strengthBoost *= 1.15, rare: () => strengthBoost *= 1.25, epic: () => strengthBoost *= 1.4 },
+            { type: 'explosiveShot', desc: 'Explosive Shot +7% (Area damage on hit)', common: () => explosiveShot += 0.07, rare: () => explosiveShot += 0.1, epic: () => explosiveShot += 0.15 },
+            { type: 'rapidDash', desc: 'Rapid Dash +1 (Extra dash charge)', common: () => rapidDash += 1, rare: () => rapidDash += 2, epic: () => rapidDash += 3 },
+            { type: 'powerStrike', desc: 'Power Strike +15% (Stronger single hits)', common: () => powerStrike *= 1.15, rare: () => powerStrike *= 1.25, epic: () => powerStrike *= 1.4 },
+            { type: 'stunChance', desc: 'Stun Chance +7% (Stun enemies)', common: () => stunChance += 0.07, rare: () => stunChance += 0.1, epic: () => stunChance += 0.15 },
+            { type: 'multiHit', desc: 'Multi-Hit +1 (Extra hits per attack)', common: () => multiHit += 1, rare: () => multiHit += 2, epic: () => multiHit += 3 },
+            { type: 'vitality', desc: 'Vitality +15% (Boost health and strength)', common: () => vitality *= 1.15, rare: () => vitality *= 1.25, epic: () => vitality *= 1.4 },
+            { type: 'rageMode', desc: 'Rage Mode +7% (Damage boost when low HP)', common: () => rageMode += 0.07, rare: () => rageMode += 0.1, epic: () => rageMode += 0.15 },
+            { type: 'swiftStrike', desc: 'Swift Strike +15% (Faster attack speed)', common: () => swiftStrike *= 1.15, rare: () => swiftStrike *= 1.25, epic: () => swiftStrike *= 1.4 },
+            { type: 'endurance', desc: 'Endurance +15% (Longer stamina duration)', common: () => endurance *= 1.15, rare: () => endurance *= 1.25, epic: () => endurance *= 1.4 }
+        ];
+
+        function preload() {
+            try {
+                playerImg = loadImage('https://art.pixilart.com/129233c574f4987.png');
+                weaponImg = loadImage('https://art.pixilart.com/212fc325a6a7ed7.png');
+                enemyImg = loadImage('https://static.vecteezy.com/system/resources/thumbnails/027/190/664/small_2x/pixel-art-zombie-character-3-png.png');
+                bossImg = loadImage('https://art.pixilart.com/129233c574f4987.png');
+            } catch (e) {
+                console.error("Error loading images:", e);
+            }
+        }
+
+        function setup() {
+            if (typeof p5 === 'undefined') {
+                console.error("p5.js not loaded!");
+                alert("Error: p5.js not loaded. Check your connection or try another browser.");
+                return;
+            }
+            createCanvas(windowWidth, windowHeight);
+            player = {
+                pos: createVector(windowWidth / 2, windowHeight / 2),
+                hp: 100,
+                maxHp: 100,
+                speed: 5,
+                shield: 0
+            };
+            cameraOffset = createVector(0, 0);
+            document.getElementById("mainMenu").style.display = "block";
+            document.getElementById("ui").style.display = "none";
+            document.getElementById("waveInfo").style.display = "none";
+            document.getElementById("upgradeMenu").style.display = "none";
+            document.getElementById("gameOver").style.display = "none";
+            document.getElementById("leaderboard").style.display = "none";
+            document.getElementById("achievementPopup").style.display = "none";
+            noLoop();
+            document.getElementById("gameMusic").volume = 0.3;
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const startButton = document.getElementById("startButton");
+            const instructionsButton = document.getElementById("instructionsButton");
+            const achievementsButton = document.getElementById("achievementsButton");
+            const leaderboardButton = document.getElementById("leaderboardButton");
+            if (startButton) startButton.addEventListener("click", startGame);
+            if (instructionsButton) instructionsButton.addEventListener("click", showInstructions);
+            if (achievementsButton) achievementsButton.addEventListener("click", showAchievements);
+            if (leaderboardButton) leaderboardButton.addEventListener("click", showLeaderboard);
+        });
+
+        function draw() {
+            if (!gameStarted) {
+                background(50);
+                drawMenuParticles();
+                return;
+            }
+            if (gameOver) {
+                document.getElementById("gameOver").style.display = "block";
+                noLoop();
+                return;
+            }
+            if (!player) {
+                console.error("Player is undefined in draw!");
+                return;
+            }
+
+            let gradient = drawingContext.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, max(width, height));
+            gradient.addColorStop(0, '#222');
+            gradient.addColorStop(1, '#111');
+            drawingContext.fillStyle = gradient;
+            drawingContext.fillRect(0, 0, width, height);
+
+            updateCamera();
+            push();
+            scale(cameraZoom);
+            translate(-cameraOffset.x, -cameraOffset.y);
+            drawParticles();
+            updateGameTime();
+            updateWave();
+            updateRegen();
+            updatePlayer();
+            updateEnemies();
+            updateBoss();
+            updateBullets();
+            checkAchievements();
+            pop();
+            updateUI();
+        }
+
+        function drawMenuParticles() {
+            particles.push({ pos: createVector(random(windowWidth), random(windowHeight)), vel: createVector(random(-1, 1), random(-1, 1)), life: 100, color: [random(255), random(255), random(255)] });
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.pos.add(p.vel);
+                p.life--;
+                fill(p.color[0], p.color[1], p.color[2], p.life * 2.55);
+                ellipse(p.pos.x, p.pos.y, 8, 8);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function drawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.pos.add(p.vel);
+                p.life--;
+                fill(p.color[0], p.color[1], p.color[2], p.life * 2.55);
+                ellipse(p.pos.x, p.pos.y, p.size || 8, p.size || 8);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function updateCamera() {
+            if (!player) return;
+            let target = createVector(player.pos.x - windowWidth / (2 * cameraZoom), player.pos.y - windowHeight / (2 * cameraZoom));
+            cameraOffset.lerp(target, 0.1);
+            cameraZoom = lerp(cameraZoom, targetZoom, 0.05);
+        }
+
+        function updateGameTime() {
+            gameTime += deltaTime / 1000;
+            let minutes = floor(gameTime / 60);
+            let seconds = floor(gameTime % 60);
+            document.getElementById("time").innerText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            document.getElementById("finalTime").innerText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        }
+
+        function updateWave() {
+            waveTimer += deltaTime;
+            if (waveTimer >= waveInterval && enemies.length === 0 && !bossActive) {
+                wave++;
+                waveTimer = 0;
+                let difficultyMultiplier = difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 1.3 : 1;
+                enemiesToSpawn = floor((5 + wave * 2) * difficultyMultiplier);
+                spawnWave();
+                if (wave % 30 === 0) {
+                    spawnBoss();
+                    targetZoom = 0.8;
+                } else {
+                    targetZoom = 1;
+                }
+                document.getElementById("wave").innerText = wave;
+                document.getElementById("finalWave").innerText = wave;
+                document.getElementById("waveInfo").classList.add("show");
+                setTimeout(() => document.getElementById("waveInfo").classList.remove("show"), 2000);
+            }
+        }
+
+        function spawnWave() {
+            if (!player) return;
+            for (let i = 0; i < enemiesToSpawn; i++) {
+                let angle = random(TWO_PI);
+                let dist = max(windowWidth, windowHeight) * 0.7;
+                let pos = createVector(player.pos.x + cos(angle) * dist, player.pos.y + sin(angle) * dist);
+                enemies.push({
+                    pos: pos,
+                    hp: (30 + wave * 10) * (difficulty === 'easy' ? 0.8 : difficulty === 'hard' ? 1.2 : 1),
+                    speed: 1 + wave * 0.1,
+                    type: 'normal',
+                    slowed: 0,
+                    poisoned: 0
+                });
+            }
+        }
+
+        function spawnBoss() {
+            if (!player) return;
+            bossActive = true;
+            let angle = random(TWO_PI);
+            let dist = max(windowWidth, windowHeight) * 0.7;
+            let pos = createVector(player.pos.x + cos(angle) * dist, player.pos.y + sin(angle) * dist);
+            boss = {
+                pos: pos,
+                hp: (500 + wave * 50) * (difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 1.3 : 1),
+                speed: 1.5,
+                type: 'boss',
+                slowed: 0,
+                poisoned: 0
+            };
+        }
+
+        function updateRegen() {
+            if (!player) return;
+            if (regenRate > 0 && frameCount % (60 / regenSpeed) === 0) {
+                player.hp = min(player.hp + regenRate, player.maxHp);
+            }
+            if (healPulse > 0 && frameCount % 120 === 0) {
+                player.hp = min(player.hp + healPulse, player.maxHp);
+            }
+            if (manaRegen > 0) {
+                fireRate = max(fireRate - manaRegen, 100);
+            }
+        }
+
+        function updatePlayer() {
+            if (!player) {
+                console.error("Player is undefined in updatePlayer!");
+                return;
+            }
+            let move = createVector(0, 0);
+            if (keyIsDown(87)) move.y -= 1; // W
+            if (keyIsDown(83)) move.y += 1; // S
+            if (keyIsDown(65)) move.x -= 1; // A
+            if (keyIsDown(68)) move.x += 1; // D
+            if (move.mag() > 0) {
+                move.normalize().mult(player.speed * speedMultiplier * stamina * endurance);
+                player.pos.add(move);
+                player.pos.x = constrain(player.pos.x, -windowWidth / 2, windowWidth * 1.5);
+                player.pos.y = constrain(player.pos.y, -windowHeight / 2, windowHeight * 1.5);
+            }
+
+            let mouse = createVector(mouseX + cameraOffset.x, mouseY + cameraOffset.y);
+            let angle = atan2(mouse.y - player.pos.y, mouse.x - player.pos.x);
+            push();
+            translate(player.pos.x, player.pos.y);
+            if (hitFlash > 0) {
+                tint(255, 100, 100);
+                hitFlash--;
+            }
+            if (playerImg) {
+                image(playerImg, -128, -128, 256, 256); // Increased player size
+            }
+            rotate(angle);
+            if (weaponImg) {
+                image(weaponImg, 40, -32, 64, 64); // Weapon size
+            }
+            pop();
+            noTint();
+
+            if (mouseIsPressed && millis() - lastShot > fireRate / swiftStrike) {
+                for (let i = 0; i < multiShot + multiHit; i++) {
+                    let offset = (i - (multiShot + multiHit - 1) / 2) * 0.1;
+                    shoot(angle + offset);
+                }
+                lastShot = millis();
+            }
+        }
+
+        function shoot(angle) {
+            if (!player) return;
+            let dir = createVector(cos(angle), sin(angle)).mult(bulletSpeed * spellRange);
+            if (homing > 0 && enemies.length > 0) {
+                let closest = enemies[0];
+                let minDist = p5.Vector.dist(player.pos, closest.pos);
+                for (let e of enemies) {
+                    let d = p5.Vector.dist(player.pos, e.pos);
+                    if (d < minDist) {
+                        minDist = d;
+                        closest = e;
+                    }
+                }
+                let targetAngle = atan2(closest.pos.y - player.pos.y, closest.pos.x - player.pos.x);
+                dir.lerp(createVector(cos(targetAngle), sin(targetAngle)).mult(bulletSpeed), homing);
+            }
+            let bullet = {
+                pos: player.pos.copy(),
+                vel: dir,
+                size: bulletSize,
+                pierce: pierceCount,
+                fire: fireDamage,
+                ice: iceSlow,
+                lightning: lightningChain,
+                arcane: arcaneBlast,
+                poison: poisonDot,
+                explosive: explosiveShot
+            };
+            bullets.push(bullet);
+            let bulletColor = bullet.fire > 0 ? [255, 100, 0] : bullet.ice > 0 ? [0, 200, 255] : bullet.lightning > 0 ? [200, 200, 255] : bullet.poison > 0 ? [0, 255, 0] : [255, 255, 0];
+            fill(bulletColor);
+            drawingContext.shadowBlur = 10;
+            drawingContext.shadowColor = `rgba(${bulletColor[0]}, ${bulletColor[1]}, ${bulletColor[2]}, 0.7)`;
+            ellipse(bullet.pos.x, bullet.pos.y, bullet.size, bullet.size);
+            drawingContext.shadowBlur = 0;
+            if (darkPulse > 0) {
+                for (let e of enemies) {
+                    if (p5.Vector.dist(e.pos, player.pos) < 200) {
+                        let push = p5.Vector.sub(e.pos, player.pos).normalize().mult(darkPulse);
+                        e.pos.add(push);
+                    }
+                }
+                if (bossActive && boss && p5.Vector.dist(boss.pos, player.pos) < 200) {
+                    let push = p5.Vector.sub(boss.pos, player.pos).normalize().mult(darkPulse);
+                    boss.pos.add(push);
+                }
+            }
+        }
+
+        function updateEnemies() {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i];
+                if (!player) {
+                    console.error("Player is undefined in updateEnemies!");
+                    return;
+                }
+                let dir = p5.Vector.sub(player.pos, e.pos).normalize().mult(e.speed * (1 - e.slowed));
+                e.pos.add(dir);
+                if (e.poisoned > 0 && frameCount % 60 === 0) {
+                    e.hp -= e.poisoned;
+                }
+
+                if (p5.Vector.dist(e.pos, player.pos) < 32) {
+                    let damage = 10 * (1 - damageResist);
+                    if (player.shield > 0) {
+                        player.shield = max(0, player.shield - damage);
+                    } else {
+                        player.hp -= damage;
+                    }
+                    if (thorns > 0) e.hp -= thorns;
+                    if (reflectDamage > 0) e.hp -= damage * reflectDamage;
+                    hitFlash = 10;
+                    enemies.splice(i, 1);
+                    if (player.hp <= 0) {
+                        gameOver = true;
+                        player.hp = 0;
+                        updateLeaderboard();
+                        document.getElementById("finalLevel").innerText = level;
+                        document.getElementById("enemiesDefeated").innerText = enemiesDefeated;
+                        document.getElementById("playerNameFinal").innerText = playerName;
+                        document.getElementById("finalScore").innerText = calculateScore();
+                    }
+                } else {
+                    push();
+                    translate(e.pos.x, e.pos.y);
+                    rotate(p5.Vector.sub(player.pos, e.pos).heading() + HALF_PI);
+                    if (enemyImg) {
+                        image(enemyImg, -32, -32, 64, 64);
+                    }
+                    fill(255, 0, 0);
+                    rect(-20, -40, 40 * (e.hp / (30 + wave * 10)), 5);
+                    pop();
+                }
+            }
+        }
+
+        function updateBoss() {
+            if (!bossActive || !boss) return;
+            if (!player) {
+                console.error("Player is undefined in updateBoss!");
+                return;
+            }
+            let dir = p5.Vector.sub(player.pos, boss.pos).normalize().mult(boss.speed * (1 - boss.slowed));
+            boss.pos.add(dir);
+            if (boss.poisoned > 0 && frameCount % 60 === 0) {
+                boss.hp -= boss.poisoned;
+            }
+            if (p5.Vector.dist(boss.pos, player.pos) < 96) {
+                let damage = 20 * (1 - damageResist);
+                if (player.shield > 0) {
+                    player.shield = max(0, player.shield - damage);
+                } else {
+                    player.hp -= damage;
+                }
+                if (thorns > 0) boss.hp -= thorns;
+                if (reflectDamage > 0) boss.hp -= damage * reflectDamage;
+                hitFlash = 10;
+                if (player.hp <= 0) {
+                    gameOver = true;
+                    player.hp = 0;
+                    updateLeaderboard();
+                    document.getElementById("finalLevel").innerText = level;
+                    document.getElementById("enemiesDefeated").innerText = enemiesDefeated;
+                    document.getElementById("playerNameFinal").innerText = playerName;
+                    document.getElementById("finalScore").innerText = calculateScore();
+                }
+            }
+            push();
+            translate(boss.pos.x, boss.pos.y);
+            scale(1.5);
+            rotate(p5.Vector.sub(player.pos, boss.pos).heading() + HALF_PI);
+            if (bossImg) {
+                image(bossImg, -48, -48, 96, 96);
+            }
+            fill(255, 0, 0);
+            rect(-50, -60, 100 * (boss.hp / (500 + wave * 50)), 10);
+            pop();
+        }
+
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i];
+                if (!player) {
+                    console.error("Player is undefined in updateBullets!");
+                    return;
+                }
+                b.pos.add(b.vel);
+                let bulletColor = b.fire > 0 ? [255, 100, 0] : b.ice > 0 ? [0, 200, 255] : b.lightning > 0 ? [200, 200, 255] : b.poison > 0 ? [0, 255, 0] : [255, 255, 0];
+                fill(bulletColor);
+                drawingContext.shadowBlur = 10;
+                drawingContext.shadowColor = `rgba(${bulletColor[0]}, ${bulletColor[1]}, ${bulletColor[2]}, 0.7)`;
+                ellipse(b.pos.x, b.pos.y, b.size, b.size);
+                drawingContext.shadowBlur = 0;
+
+                let hit = false;
+                // Process enemies
+                let enemiesToRemove = [];
+                for (let j = 0; j < enemies.length; j++) {
+                    let enemy = enemies[j];
+                    if (!enemy) continue; // Skip undefined enemies
+                    if (p5.Vector.dist(b.pos, enemy.pos) < b.size + 32) {
+                        let damage = 10 * damageMultiplier * (player.hp < 30 ? 1 + rageMode : 1);
+                        if (random(1) < critChance) damage *= critDamage;
+                        damage *= strengthBoost * powerStrike * vitality;
+                        
+                        // Explosive shot affects multiple enemies
+                        if (b.explosive > 0) {
+                            for (let k = 0; k < enemies.length; k++) {
+                                if (enemies[k] && p5.Vector.dist(b.pos, enemies[k].pos) < 100) {
+                                    enemies[k].hp -= damage * b.explosive;
+                                    if (enemies[k].hp <= 0) {
+                                        enemiesToRemove.push(k);
+                                    }
+                                }
+                            }
+                            for (let k = 0; k < 20; k++) {
+                                particles.push({
+                                    pos: b.pos.copy(),
+                                    vel: p5.Vector.random2D().mult(random(3, 7)),
+                                    life: 30,
+                                    color: [255, 100, 0],
+                                    size: 12
+                                });
+                            }
+                        }
+                        
+                        // Arcane blast affects multiple enemies
+                        if (b.arcane > 0) {
+                            for (let k = 0; k < enemies.length; k++) {
+                                if (enemies[k] && p5.Vector.dist(b.pos, enemies[k].pos) < 50) {
+                                    enemies[k].hp -= damage * b.arcane;
+                                    if (enemies[k].hp <= 0) {
+                                        enemiesToRemove.push(k);
+                                    }
+                                    for (let m = 0; m < 10; m++) {
+                                        particles.push({
+                                            pos: b.pos.copy(),
+                                            vel: p5.Vector.random2D().mult(random(2, 5)),
+                                            life: 20,
+                                            color: [200, 0, 200],
+                                            size: 10
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        enemy.hp -= damage * (1 + armorPen);
+                        if (b.fire > 0) enemy.hp -= b.fire;
+                        if (b.ice > 0) enemy.slowed = min(enemy.slowed + b.ice, 0.5);
+                        if (b.poison > 0) enemy.poisoned = max(enemy.poisoned, b.poison);
+                        if (b.lightning > 0) {
+                            let targets = [enemy];
+                            let current = enemy;
+                            for (let k = 0; k < b.lightning; k++) {
+                                let closest = null;
+                                let minDist = Infinity;
+                                for (let e of enemies) {
+                                    if (!targets.includes(e) && p5.Vector.dist(current.pos, e.pos) < 100) {
+                                        if (p5.Vector.dist(current.pos, e.pos) < minDist) {
+                                            minDist = p5.Vector.dist(current.pos, e.pos);
+                                            closest = e;
+                                        }
+                                    }
+                                }
+                                if (closest) {
+                                    closest.hp -= damage * 0.5;
+                                    targets.push(closest);
+                                    current = closest;
+                                    stroke(200, 200, 255);
+                                    line(current.pos.x, current.pos.y, closest.pos.x, closest.pos.y);
+                                    noStroke();
+                                    if (closest.hp <= 0) {
+                                        enemiesToRemove.push(enemies.indexOf(closest));
+                                    }
+                                }
+                            }
+                        }
+                        if (random(1) < stunChance) enemy.slowed = 1;
+                        if (knockback > 0) {
+                            let push = p5.Vector.sub(enemy.pos, b.pos).normalize().mult(knockback);
+                            enemy.pos.add(push);
+                        }
+                        if (lightHeal > 0) player.hp = min(player.hp + lightHeal, player.maxHp);
+                        if (hpLeech > 0) player.hp = min(player.hp + damage * hpLeech, player.maxHp);
+                        if (b.pierce <= 0) {
+                            bullets.splice(i, 1);
+                            hit = true;
+                            break;
+                        } else {
+                            b.pierce--;
+                        }
+                        if (enemy.hp <= 0) {
+                            enemiesToRemove.push(j);
+                        }
+                    }
+                }
+
+                // Remove defeated enemies
+                enemiesToRemove.sort((a, b) => b - a); // Sort in descending order to avoid index issues
+                for (let index of enemiesToRemove) {
+                    if (enemies[index]) {
+                        let enemyPos = enemies[index].pos.copy();
+                        enemies.splice(index, 1);
+                        enemiesDefeated++;
+                        if (healOnKill > 0) player.hp = min(player.hp + healOnKill, player.maxHp);
+                        xp += 10 + wave * 5;
+                        checkLevelUp();
+                        for (let k = 0; k < 15; k++) {
+                            particles.push({
+                                pos: enemyPos,
+                                vel: p5.Vector.random2D().mult(random(3, 7)),
+                                life: 40,
+                                color: [255, 0, 0],
+                                size: 10
+                            });
+                        }
+                    }
+                }
+
+                // Process boss
+                if (!hit && bossActive && boss) {
+                    if (p5.Vector.dist(b.pos, boss.pos) < b.size + 48) {
+                        let damage = 10 * damageMultiplier * (player.hp < 30 ? 1 + rageMode : 1);
+                        if (random(1) < critChance) damage *= critDamage;
+                        damage *= strengthBoost * powerStrike * vitality;
+                        if (b.explosive > 0) {
+                            boss.hp -= damage * b.explosive;
+                            for (let k = 0; k < 20; k++) {
+                                particles.push({
+                                    pos: b.pos.copy(),
+                                    vel: p5.Vector.random2D().mult(random(3, 7)),
+                                    life: 30,
+                                    color: [255, 100, 0],
+                                    size: 12
+                                });
+                            }
+                        }
+                        if (b.arcane > 0) {
+                            boss.hp -= damage * b.arcane;
+                            for (let k = 0; k < 10; k++) {
+                                particles.push({
+                                    pos: b.pos.copy(),
+                                    vel: p5.Vector.random2D().mult(random(2, 5)),
+                                    life: 20,
+                                    color: [200, 0, 200],
+                                    size: 10
+                                });
+                            }
+                        }
+                        boss.hp -= damage * (1 + armorPen);
+                        if (b.fire > 0) boss.hp -= b.fire;
+                        if (b.ice > 0) boss.slowed = min(boss.slowed + b.ice, 0.5);
+                        if (b.poison > 0) boss.poisoned = max(boss.poisoned, b.poison);
+                        if (random(1) < stunChance) boss.slowed = 1;
+                        if (knockback > 0) {
+                            let push = p5.Vector.sub(boss.pos, b.pos).normalize().mult(knockback);
+                            boss.pos.add(push);
+                        }
+                        if (lightHeal > 0) player.hp = min(player.hp + lightHeal, player.maxHp);
+                        if (hpLeech > 0) player.hp = min(player.hp + damage * hpLeech, player.maxHp);
+                        if (b.pierce <= 0) {
+                            bullets.splice(i, 1);
+                            hit = true;
+                        } else {
+                            b.pierce--;
+                        }
+                        if (boss && boss.hp <= 0) {
+                            let bossPos = boss.pos.copy();
+                            bossActive = false;
+                            boss = null;
+                            enemiesDefeated += 10;
+                            if (healOnKill > 0) player.hp = min(player.hp + healOnKill * 10, player.maxHp);
+                            xp += 100 + wave * 50;
+                            checkLevelUp();
+                            targetZoom = 1;
+                            for (let k = 0; k < 30; k++) {
+                                particles.push({
+                                    pos: bossPos,
+                                    vel: p5.Vector.random2D().mult(random(4, 8)),
+                                    life: 60,
+                                    color: [255, 0, 0],
+                                    size: 15
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (!hit && (b.pos.x < -windowWidth || b.pos.x > windowWidth * 2 || b.pos.y < -windowHeight || b.pos.y > windowHeight * 2)) {
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+
+        function checkLevelUp() {
+            while (xp >= xpToNext) {
+                level++;
+                xp -= xpToNext;
+                xpToNext = floor(xpToNext * 1.3);
+                player.hp = min(player.hp + 10 * hpBoost * vitality, player.maxHp);
+                canReroll = true;
+                showUpgrades();
+                noLoop();
+                document.getElementById("upgradeMenu").style.display = "block";
+            }
+        }
+
+        function showUpgrades() {
+            currentUpgrades = [];
+            for (let i = 0; i < 3; i++) {
+                let upgrade = random(upgradePool);
+                let rarity = random() < 0.5 ? 'common' : random() < 0.3 ? 'rare' : 'epic';
+                currentUpgrades.push({ upgrade, rarity });
+            }
+            const options = document.getElementById("upgradeOptions");
+            options.innerHTML = "";
+            currentUpgrades.forEach(({ upgrade, rarity }, index) => {
+                const button = document.createElement("button");
+                button.className = rarity;
+                button.innerText = `${rarity.toUpperCase()}: ${upgrade.desc}`;
+                button.onclick = () => selectUpgrade(index);
+                options.appendChild(button);
+            });
+            document.getElementById("rerollButton").style.display = canReroll ? "block" : "none";
+        }
+
+        function selectUpgrade(index) {
+            const { upgrade, rarity } = currentUpgrades[index];
+            upgrade[rarity]();
+            document.getElementById("upgradeMenu").style.display = "none";
+            loop();
+        }
+
+        function rerollUpgrades() {
+            if (canReroll) {
+                canReroll = false;
+                showUpgrades();
+            }
+        }
+
+        function updateUI() {
+            if (!player) return;
+            document.getElementById("hp").innerText = floor(player.hp);
+            document.getElementById("maxHp").innerText = player.maxHp;
+            document.getElementById("hpBar").style.width = `${(player.hp / player.maxHp) * 100}%`;
+            document.getElementById("level").innerText = level;
+            document.getElementById("xp").innerText = floor(xp);
+            document.getElementById("xpToNext").innerText = floor(xpToNext);
+            document.getElementById("xpBar").style.width = `${(xp / xpToNext) * 100}%`;
+            document.getElementById("enemies").innerText = enemies.length + (bossActive ? 1 : 0);
+            document.getElementById("playerNameDisplay").innerText = playerName;
+        }
+
+        function checkAchievements() {
+            achievements.forEach(a => {
+                if (!a.unlocked && a.condition()) {
+                    a.unlocked = true;
+                    const popup = document.getElementById("achievementPopup");
+                    popup.innerText = `Achievement Unlocked: ${a.name}\n${a.desc}`;
+                    popup.style.display = "block";
+                    setTimeout(() => popup.style.display = "none", 3000);
+                }
+            });
+        }
+
+        function showAchievements() {
+            const popup = document.getElementById("achievementPopup");
+            popup.innerHTML = achievements.map(a => `${a.name}: ${a.desc} ${a.unlocked ? '[Unlocked]' : '[Locked]'}`).join('\n');
+            popup.style.display = "block";
+            setTimeout(() => popup.style.display = "none", 3000);
+            noLoop();
+        }
+
+        function calculateScore() {
+            return floor(enemiesDefeated * 10 + wave * 100 + level * 50);
+        }
+
+        function updateLeaderboard() {
+            let score = calculateScore();
+            leaderboard.push({ name: playerName, score: score, wave: wave, level: level, enemies: enemiesDefeated });
+            leaderboard.sort((a, b) => b.score - a.score);
+            leaderboard = leaderboard.slice(0, 10);
+            localStorage.setItem('leaderboard', JSON.stringify(leaderboard));
+        }
+
+        function showLeaderboard() {
+            document.getElementById("leaderboard").style.display = "block";
+            const list = document.getElementById("leaderboardList");
+            list.innerHTML = "";
+            leaderboard.forEach((entry, index) => {
+                const p = document.createElement("p");
+                p.innerText = `${index + 1}. ${entry.name}: Score ${entry.score} (Wave ${entry.wave}, Level ${entry.level}, Enemies ${entry.enemies})`;
+                p.style.color = index < 3 ? "#00ffff" : "#fff";
+                list.appendChild(p);
+            });
+            noLoop();
+        }
+
+        function closeLeaderboard() {
+            document.getElementById("leaderboard").style.display = "none";
+            if (!gameStarted) loop();
+        }
+
+        function startGame() {
+            if (typeof p5 === 'undefined') {
+                console.error("p5.js not loaded!");
+                alert("Error: p5.js not loaded. Check your connection or try another browser.");
+                return;
+            }
+            if (!player) {
+                player = {
+                    pos: createVector(windowWidth / 2, windowHeight / 2),
+                    hp: 100,
+                    maxHp: 100,
+                    speed: 5,
+                    shield: 0
+                };
+            }
+            playerName = document.getElementById("playerNameInput").value || "Wizard";
+            difficulty = document.getElementById("difficulty").value;
+            gameStarted = true;
+            document.getElementById("gameMusic").play();
+            document.getElementById("mainMenu").classList.add("hidden");
+            setTimeout(() => {
+                document.getElementById("mainMenu").style.display = "none";
+                document.getElementById("ui").style.display = "block";
+                document.getElementById("waveInfo").style.display = "block";
+                document.getElementById("waveInfo").classList.add("show");
+                setTimeout(() => document.getElementById("waveInfo").classList.remove("show"), 2000);
+                loop();
+            }, 500);
+        }
+
+        function showInstructions() {
+            alert("Wizard Infection\n\nControls:\n- Move: WASD\n- Shoot: Left Mouse Button (aim with mouse)\n\nObjective:\n- Survive waves of zombies and bosses.\n- Gain XP automatically to level up.\n- Choose from 3 random powers (with one reroll) to enhance your wizard.\n\nDifficulty:\n- Easy: Fewer enemies, weaker bosses.\n- Normal: Balanced challenge.\n- Hard: More enemies, stronger bosses.\n\nTips:\n- Bosses appear every 30 waves.\n- Use powers strategically to survive longer!\n- Check the leaderboard to see top players!");
+        }
+
+        function restartGame() {
+            player = {
+                pos: createVector(windowWidth / 2, windowHeight / 2),
+                hp: 100,
+                maxHp: 100,
+                speed: 5,
+                shield: 0
+            };
+            enemies = [];
+            bullets = [];
+            particles = [];
+            xp = 0;
+            level = 1;
+            xpToNext = 100;
+            fireRate = 500;
+            wave = 1;
+            waveTimer = 0;
+            enemiesToSpawn = 5;
+            bossActive = false;
+            boss = null;
+            gameTime = 0;
+            damageMultiplier = 1;
+            speedMultiplier = 1;
+            bulletSpeed = 10;
+            regenRate = 0;
+            bulletSize = 10;
+            pierceCount = 0;
+            multiShot = 1;
+            enemiesDefeated = 0;
+            fireDamage = 0;
+            iceSlow = 0;
+            lightningChain = 0;
+            arcaneBlast = 0;
+            manaRegen = 0;
+            spellRange = 1;
+            homing = 0;
+            poisonDot = 0;
+            darkPulse = 0;
+            lightHeal = 0;
+            damageResist = 0;
+            healOnKill = 0;
+            shieldDuration = 0;
+            hpLeech = 0;
+            regenSpeed = 1;
+            maxShield = 0;
+            reflectDamage = 0;
+            thorns = 0;
+            hpBoost = 1;
+            healPulse = 0;
+            knockback = 0;
+            critChance = 0;
+            critDamage = 1;
+            meleeDamage = 0;
+            stamina = 1;
+            chargeSpeed = 1;
+            dashDistance = 1;
+            armorPen = 0;
+            strengthBoost = 1;
+            explosiveShot = 0;
+            rapidDash = 0;
+            powerStrike = 1;
+            stunChance = 0;
+            multiHit = 0;
+            vitality = 1;
+            rageMode = 0;
+            swiftStrike = 1;
+            endurance = 1;
+            cameraZoom = 1;
+            targetZoom = 1;
+            canReroll = true;
+            currentUpgrades = [];
+            gameOver = false;
+            cameraOffset = createVector(0, 0);
+            document.getElementById("gameOver").style.display = "none";
+            document.getElementById("ui").style.display = "block";
+            document.getElementById("waveInfo").style.display = "block";
+            document.getElementById("gameMusic").currentTime = 0;
+            document.getElementById("gameMusic").play();
+            loop();
+        }
+
+        function returnToMenu() {
+            restartGame();
+            gameStarted = false;
+            document.getElementById("gameOver").style.display = "none";
+            document.getElementById("mainMenu").classList.remove("hidden");
+            document.getElementById("mainMenu").style.display = "block";
+            document.getElementById("ui").style.display = "none";
+            document.getElementById("waveInfo").style.display = "none";
+            document.getElementById("leaderboard").style.display = "none";
+            document.getElementById("achievementPopup").style.display = "none";
+            document.getElementById("gameMusic").pause();
+            document.getElementById("gameMusic").currentTime = 0;
+            noLoop();
+        }
+    </script>
+</body>
+</html>
